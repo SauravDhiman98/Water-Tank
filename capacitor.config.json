@@ -1,0 +1,9 @@
+{
+  "appId": "com.aquasense.tankmonitor",
+  "appName": "AquaSense",
+  "webDir": "www",
+  "server": {
+    "cleartext": true,
+    "androidScheme": "http"
+  }
+}

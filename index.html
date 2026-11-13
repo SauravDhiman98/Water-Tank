@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#090d16" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>AquaSense — Smart Tank Monitor</title>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --card-bg: rgba(20, 29, 47, 0.72);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --accent: #38bdf8;
+      --accent-dark: #0284c7;
+      --accent-glow: rgba(56, 189, 248, 0.25);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background: radial-gradient(circle at 50% 0%, #13223f 0%, var(--bg-dark) 65%);
+      color: var(--text-primary);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 20px);
+      overflow-x: hidden;
+      transition: background 0.5s ease;
+    }
+
+    body.alarm-flash {
+      animation: bgAlarmPulse 1.4s infinite alternate;
+    }
+
+    @keyframes bgAlarmPulse {
+      0% { background: radial-gradient(circle at 50% 0%, #13223f 0%, #090d16 65%); }
+      100% { background: radial-gradient(circle at 50% 0%, #3b1219 0%, #090d16 70%); }
+    }
+
+    .app-shell {
+      width: 100%;
+      max-width: 430px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-top: 6px;
+    }
+
+    /* Top Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 2px;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .brand h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #64748b;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+
+    .live-dot.online {
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      animation: pulse 2s infinite;
+    }
+
+    .live-dot.offline {
+      background: #ef4444;
+      box-shadow: 0 0 8px #ef4444;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
+
+    .icon-btn {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-primary);
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      backdrop-filter: blur(12px);
+      transition: transform 0.15s, background 0.2s, border-color 0.2s;
+    }
+
+    .icon-btn:active {
+      transform: scale(0.94);
+    }
+
+    .icon-btn.active-state {
+      border-color: rgba(56, 189, 248, 0.5);
+      color: #38bdf8;
+    }
+
+    .icon-btn.muted-state {
+      border-color: rgba(248, 113, 113, 0.45);
+      color: #f87171;
+    }
+
+    /* Active Alarm Banner */
+    .alarm-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(220, 38, 38, 0.18);
+      border: 1px solid rgba(248, 113, 113, 0.45);
+      backdrop-filter: blur(12px);
+      animation: bannerBounce 0.6s ease;
+    }
+
+    .alarm-banner.visible {
+      display: flex;
+    }
+
+    .alarm-banner.high-alarm {
+      background: rgba(234, 88, 12, 0.2);
+      border-color: rgba(251, 146, 60, 0.5);
+    }
+
+    @keyframes bannerBounce {
+      0% { transform: translateY(-6px); opacity: 0; }
+      100% { transform: translateY(0); opacity: 1; }
+    }
+
+    .alarm-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .alarm-icon {
+      font-size: 20px;
+      animation: ring 0.8s infinite;
+    }
+
+    @keyframes ring {
+      0%, 100% { transform: rotate(0deg); }
+      20% { transform: rotate(15deg); }
+      40% { transform: rotate(-15deg); }
+      60% { transform: rotate(10deg); }
+      80% { transform: rotate(-10deg); }
+    }
+
+    .alarm-text-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .alarm-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fca5a5;
+    }
+
+    .alarm-banner.high-alarm .alarm-title {
+      color: #fdba74;
+    }
+
+    .alarm-desc {
+      font-size: 11px;
+      color: #e2e8f0;
+    }
+
+    .snooze-btn {
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 7px 11px;
+      border-radius: 10px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    /* Main Tank Hero Card */
+    .hero-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 28px;
+      padding: 22px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      position: relative;
+    }
+
+    .status-pill {
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      transition: all 0.4s ease;
+    }
+
+    /* Realistic 3D-Styled Tank */
+    .tank-assembly {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+
+    .tank-lid {
+      width: 72px;
+      height: 12px;
+      background: linear-gradient(90deg, #334155, #64748b, #334155);
+      border-radius: 8px 8px 2px 2px;
+      margin-bottom: -3px;
+      z-index: 3;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+
+    .tank-body {
+      position: relative;
+      width: 195px;
+      height: 265px;
+      border-radius: 22px 22px 28px 28px;
+      border: 3px solid rgba(148, 163, 184, 0.35);
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(15, 23, 42, 0.65) 100%);
+      overflow: hidden;
+      box-shadow:
+        inset 0 0 28px rgba(0, 0, 0, 0.7),
+        0 14px 32px var(--accent-glow);
+      transition: box-shadow 0.5s ease;
+    }
+
+    .tank-body::after {
+      content: "";
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      width: 14px;
+      height: 88%;
+      border-radius: 99px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.02) 100%);
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    /* Threshold Marker Lines inside Tank */
+    .threshold-line {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      border-top: 1.5px dashed rgba(255, 255, 255, 0.35);
+      z-index: 4;
+      pointer-events: none;
+      display: flex;
+      justify-content: flex-end;
+      padding-right: 8px;
+    }
+
+    .threshold-line span {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 4px;
+      margin-top: -13px;
+      background: rgba(9, 13, 22, 0.75);
+    }
+
+    .threshold-high {
+      bottom: 90%;
+      border-color: rgba(251, 146, 60, 0.65);
+    }
+    .threshold-high span { color: #fb923c; }
+
+    .threshold-low {
+      bottom: 30%;
+      border-color: rgba(248, 113, 113, 0.65);
+    }
+    .threshold-low span { color: #f87171; }
+
+    /* Liquid Fill */
+    .water-fill {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 0%;
+      background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
+      transition: height 0.85s cubic-bezier(0.22, 1, 0.36, 1), background 0.5s ease;
+      z-index: 2;
+    }
+
+    .wave {
+      position: absolute;
+      left: 0;
+      width: 200%;
+      height: 18px;
+      background-repeat: repeat-x;
+      background-size: 50% 100%;
+    }
+
+    .wave-front {
+      top: -12px;
+      opacity: 0.95;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,60 C300,120 300,0 600,60 C900,120 900,0 1200,60 L1200,120 L0,120 Z' fill='%2338bdf8'/%3E%3C/svg%3E");
+      animation: waveMove 3.2s linear infinite;
+    }
+
+    .wave-back {
+      top: -15px;
+      opacity: 0.4;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,60 C300,0 300,120 600,60 C900,0 900,120 1200,60 L1200,120 L0,120 Z' fill='%23ffffff'/%3E%3C/svg%3E");
+      animation: waveMoveReverse 4.8s linear infinite;
+    }
+
+    @keyframes waveMove {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    @keyframes waveMoveReverse {
+      0% { transform: translateX(-50%); }
+      100% { transform: translateX(0); }
+    }
+
+    .scale-lines {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 26px 0;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .scale-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 6px;
+      padding: 0 12px;
+      font-size: 10px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.45);
+    }
+
+    .scale-row span.line {
+      width: 10px;
+      height: 1.5px;
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .readout-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 6;
+      pointer-events: none;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+    }
+
+    .big-percent {
+      font-size: 46px;
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      line-height: 1;
+    }
+
+    .big-percent small {
+      font-size: 22px;
+      font-weight: 600;
+      opacity: 0.9;
+    }
+
+    .liters-sub {
+      margin-top: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.9);
+      background: rgba(9, 13, 22, 0.45);
+      padding: 3px 10px;
+      border-radius: 99px;
+      backdrop-filter: blur(4px);
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 13px 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      backdrop-filter: blur(12px);
+    }
+
+    .metric-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+    }
+
+    .metric-value {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    /* Settings Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 50;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      width: 100%;
+      max-width: 380px;
+      background: #131c2e;
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+    }
+
+    .modal h3 {
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .field label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+
+    .field input {
+      width: 100%;
+      background: #090d16;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #fff;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .field input:focus {
+      border-color: var(--accent);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 11px;
+      border-radius: 12px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-primary);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #090d16;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header>
+      <div class="brand">
+        <h1>AquaSense</h1>
+        <div class="subtitle">
+          <span class="live-dot" id="liveDot"></span>
+          <span id="connText">Connecting to tank...</span>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="icon-btn active-state" id="soundBtn" title="Toggle Alarm Sound" aria-label="Alarm Sound">
+          <svg id="soundIconOn" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          <svg id="soundIconOff" style="display:none;" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            <path d="M18.63 13A17.89 17.89 0 0 1 18 8"></path>
+            <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"></path>
+            <path d="M18 8a6 6 0 0 0-9.33-5"></path>
+            <line x1="1" y1="1" x2="23" y2="23"></line>
+          </svg>
+        </button>
+        <button class="icon-btn" id="demoBtn" title="Toggle Demo Simulation" aria-label="Demo">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+        </button>
+        <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Active Alarm Alert Banner -->
+    <div class="alarm-banner" id="alarmBanner">
+      <div class="alarm-info">
+        <span class="alarm-icon">🔔</span>
+        <div class="alarm-text-wrap">
+          <div class="alarm-title" id="alarmTitle">LOW WATER ALARM</div>
+          <div class="alarm-desc" id="alarmDesc">Level dropped below 30%</div>
+        </div>
+      </div>
+      <button class="snooze-btn" id="ackBtn">MUTE</button>
+    </div>
+
+    <section class="hero-card">
+      <div class="status-pill" id="statusPill">WAITING</div>
+
+      <div class="tank-assembly">
+        <div class="tank-lid"></div>
+        <div class="tank-body" id="tankBody">
+          <!-- High & Low Alarm Threshold Lines -->
+          <div class="threshold-line threshold-high" id="highMarker"><span>MAX 90%</span></div>
+          <div class="threshold-line threshold-low" id="lowMarker"><span>MIN 30%</span></div>
+
+          <div class="water-fill" id="waterFill">
+            <div class="wave wave-back"></div>
+            <div class="wave wave-front" id="waveFront"></div>
+          </div>
+
+          <div class="scale-lines">
+            <div class="scale-row"><span class="line"></span><span>75%</span></div>
+            <div class="scale-row"><span class="line"></span><span>50%</span></div>
+            <div class="scale-row"><span class="line"></span><span>25%</span></div>
+          </div>
+
+          <div class="readout-center">
+            <div class="big-percent" id="percentReadout">--<small>%</small></div>
+            <div class="liters-sub" id="litersReadout">--- / ---- L</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <span class="metric-label">Water Depth</span>
+        <span class="metric-value" id="depthMetric">-- cm</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Air Gap</span>
+        <span class="metric-value" id="gapMetric">-- cm</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Alarm Limits</span>
+        <span class="metric-value" id="limitsMetric">&lt;30% / &gt;90%</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Last Updated</span>
+        <span class="metric-value" id="updatedMetric">--:--:--</span>
+      </div>
+    </section>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="modal">
+      <h3>Tank & Alarm Settings</h3>
+      <div class="field">
+        <label for="apiUrlInput">ESP8266 JSON URL</label>
+        <input type="url" id="apiUrlInput" placeholder="http://192.168.31.200/data" />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="lowLimitInput">Low Alarm (&lt; %)</label>
+          <input type="number" id="lowLimitInput" min="1" max="89" />
+        </div>
+        <div class="field">
+          <label for="highLimitInput">High Alarm (&gt; %)</label>
+          <input type="number" id="highLimitInput" min="10" max="100" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="pollInput">Refresh Interval (ms)</label>
+        <input type="number" id="pollInput" min="500" max="60000" step="250" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="closeModalBtn">Cancel</button>
+        <button class="btn btn-primary" id="saveSettingsBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const DEFAULT_URL = 'http://192.168.31.200/data';
+    const DEFAULT_INTERVAL = 1500;
+    const DEFAULT_LOW = 30;
+    const DEFAULT_HIGH = 90;
+
+    let apiUrl = localStorage.getItem('tank_api_url') || DEFAULT_URL;
+    let pollInterval = parseInt(localStorage.getItem('tank_poll_ms'), 10) || DEFAULT_INTERVAL;
+    let lowThreshold = parseFloat(localStorage.getItem('tank_low_limit')) || DEFAULT_LOW;
+    let highThreshold = parseFloat(localStorage.getItem('tank_high_limit')) || DEFAULT_HIGH;
+
+    let soundEnabled = true;
+    let alarmAcknowledged = false;
+    let lastAlarmType = null; // 'LOW' | 'HIGH' | null
+    let audioCtx = null;
+
+    let timerId = null;
+    let demoMode = false;
+    let demoVal = 45;
+    let demoDir = 1;
+
+    // UI Elements
+    const waterFill = document.getElementById('waterFill');
+    const waveFront = document.getElementById('waveFront');
+    const tankBody = document.getElementById('tankBody');
+    const percentReadout = document.getElementById('percentReadout');
+    const litersReadout = document.getElementById('litersReadout');
+    const statusPill = document.getElementById('statusPill');
+    const liveDot = document.getElementById('liveDot');
+    const connText = document.getElementById('connText');
+
+    const depthMetric = document.getElementById('depthMetric');
+    const gapMetric = document.getElementById('gapMetric');
+    const limitsMetric = document.getElementById('limitsMetric');
+    const updatedMetric = document.getElementById('updatedMetric');
+
+    const alarmBanner = document.getElementById('alarmBanner');
+    const alarmTitle = document.getElementById('alarmTitle');
+    const alarmDesc = document.getElementById('alarmDesc');
+    const ackBtn = document.getElementById('ackBtn');
+    const highMarker = document.getElementById('highMarker');
+    const lowMarker = document.getElementById('lowMarker');
+
+    function updateThresholdMarkers() {
+      highMarker.style.bottom = highThreshold + '%';
+      highMarker.querySelector('span').textContent = `MAX ${highThreshold}%`;
+      lowMarker.style.bottom = lowThreshold + '%';
+      lowMarker.querySelector('span').textContent = `MIN ${lowThreshold}%`;
+      limitsMetric.textContent = `<${lowThreshold}% / >${highThreshold}%`;
+    }
+
+    // Web Audio API Synthesizer for Alarm Beeps (works offline without MP3 files)
+    function unlockAudio() {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) audioCtx = new AudioContext();
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playAlarmBeep(type) {
+      if (!soundEnabled || alarmAcknowledged) return;
+      unlockAudio();
+      if (!audioCtx) return;
+
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      if (type === 'HIGH') {
+        // Urgent double high-pitch chime for overflow warning (>90%)
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.setValueAtTime(1174.66, now + 0.16);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.42);
+        osc.start(now);
+        osc.stop(now + 0.44);
+      } else {
+        // Deep warning tone for low water (<30%)
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(392.00, now + 0.22);
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        osc.start(now);
+        osc.stop(now + 0.52);
+      }
+
+      // Vibrate phone if supported
+      if ('vibrate' in navigator) {
+        navigator.vibrate(type === 'HIGH' ? [200, 100, 200] : [350]);
+      }
+    }
+
+    function sendSystemNotification(title, body) {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification(title, { body, icon: 'icon.svg', tag: 'tank-alarm' });
+        } catch (e) {}
+      }
+    }
+
+    function handleAlarmState(pct) {
+      let currentAlarm = null;
+      if (pct > highThreshold) {
+        currentAlarm = 'HIGH';
+      } else if (pct < lowThreshold) {
+        currentAlarm = 'LOW';
+      }
+
+      if (currentAlarm) {
+        // If alarm type changed (e.g., transitioned from normal to HIGH or LOW), reset mute and notify
+        if (lastAlarmType !== currentAlarm) {
+          alarmAcknowledged = false;
+          lastAlarmType = currentAlarm;
+          const title = currentAlarm === 'HIGH'
+            ? `High Water Alarm (${Math.round(pct)}%)`
+            : `Low Water Alarm (${Math.round(pct)}%)`;
+          const desc = currentAlarm === 'HIGH'
+            ? `Tank exceeded ${highThreshold}% — turn off pump!`
+            : `Tank dropped below ${lowThreshold}% — refill needed!`;
+          sendSystemNotification(title, desc);
+        }
+
+        alarmBanner.classList.add('visible');
+        document.body.classList.add('alarm-flash');
+
+        if (currentAlarm === 'HIGH') {
+          alarmBanner.classList.add('high-alarm');
+          alarmTitle.textContent = `HIGH LEVEL ALARM (>${highThreshold}%)`;
+          alarmDesc.textContent = `Tank is at ${Math.round(pct)}% — turn off water pump`;
+        } else {
+          alarmBanner.classList.remove('high-alarm');
+          alarmTitle.textContent = `LOW LEVEL ALARM (<${lowThreshold}%)`;
+          alarmDesc.textContent = `Tank is at ${Math.round(pct)}% — water running low`;
+        }
+
+        ackBtn.textContent = alarmAcknowledged ? 'MUTED' : 'MUTE';
+        playAlarmBeep(currentAlarm);
+      } else {
+        // Back in safe range (30% - 90%)
+        lastAlarmType = null;
+        alarmAcknowledged = false;
+        alarmBanner.classList.remove('visible', 'high-alarm');
+        document.body.classList.remove('alarm-flash');
+      }
+    }
+
+    function setWaveColor(hexColor) {
+      const encoded = encodeURIComponent(hexColor);
+      waveFront.style.backgroundImage = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,60 C300,120 300,0 600,60 C900,120 900,0 1200,60 L1200,120 L0,120 Z' fill='${encoded}'/%3E%3C/svg%3E")`;
+    }
+
+    function updateDashboard(data) {
+      const pct = Math.max(0, Math.min(100, parseFloat(data.level_percent ?? 0)));
+      const liters = Math.round(parseFloat(data.liters ?? 0));
+      const capacity = Math.round(parseFloat(data.capacity_liters ?? 1000));
+      const heightCm = parseFloat(data.water_height_cm ?? 0).toFixed(1);
+      const distCm = parseFloat(data.distance_cm ?? 0).toFixed(1);
+
+      waterFill.style.height = pct + '%';
+      percentReadout.innerHTML = `${Math.round(pct)}<small>%</small>`;
+      litersReadout.textContent = `${liters} / ${capacity} L`;
+
+      depthMetric.textContent = `${heightCm} cm`;
+      gapMetric.textContent = distCm < 0 ? 'Error' : `${distCm} cm`;
+      updatedMetric.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      if (data.status === 'SENSOR_ERROR') {
+        waterFill.style.background = 'linear-gradient(180deg, #f59e0b 0%, #b45309 100%)';
+        setWaveColor('#f59e0b');
+        statusPill.textContent = 'SENSOR ERROR';
+        statusPill.style.color = '#fbbf24';
+        statusPill.style.background = 'rgba(245, 158, 11, 0.15)';
+        statusPill.style.borderColor = 'rgba(245, 158, 11, 0.35)';
+        tankBody.style.boxShadow = 'inset 0 0 28px rgba(0,0,0,0.7), 0 14px 32px rgba(245, 158, 11, 0.25)';
+        return;
+      }
+
+      handleAlarmState(pct);
+
+      if (pct < lowThreshold) {
+        waterFill.style.background = 'linear-gradient(180deg, #f87171 0%, #dc2626 100%)';
+        setWaveColor('#f87171');
+        statusPill.textContent = 'LOW LEVEL ALARM';
+        statusPill.style.color = '#f87171';
+        statusPill.style.background = 'rgba(248, 113, 113, 0.18)';
+        statusPill.style.borderColor = 'rgba(248, 113, 113, 0.45)';
+        tankBody.style.boxShadow = 'inset 0 0 28px rgba(0,0,0,0.7), 0 14px 32px rgba(248, 113, 113, 0.35)';
+      } else if (pct > highThreshold) {
+        waterFill.style.background = 'linear-gradient(180deg, #fb923c 0%, #ea580c 100%)';
+        setWaveColor('#fb923c');
+        statusPill.textContent = 'OVERFLOW ALARM';
+        statusPill.style.color = '#fb923c';
+        statusPill.style.background = 'rgba(251, 146, 60, 0.18)';
+        statusPill.style.borderColor = 'rgba(251, 146, 60, 0.45)';
+        tankBody.style.boxShadow = 'inset 0 0 28px rgba(0,0,0,0.7), 0 14px 32px rgba(251, 146, 60, 0.35)';
+      } else {
+        waterFill.style.background = 'linear-gradient(180deg, #38bdf8 0%, #0284c7 100%)';
+        setWaveColor('#38bdf8');
+        statusPill.textContent = 'NORMAL LEVEL';
+        statusPill.style.color = '#38bdf8';
+        statusPill.style.background = 'rgba(56, 189, 248, 0.15)';
+        statusPill.style.borderColor = 'rgba(56, 189, 248, 0.35)';
+        tankBody.style.boxShadow = 'inset 0 0 28px rgba(0,0,0,0.7), 0 14px 32px rgba(56, 189, 248, 0.25)';
+      }
+    }
+
+    async function pollTank() {
+      if (demoMode) {
+        demoVal += demoDir * 6;
+        if (demoVal >= 96) demoDir = -1;
+        if (demoVal <= 18) demoDir = 1;
+        liveDot.className = 'live-dot online';
+        connText.textContent = 'Demo Simulation Active';
+        updateDashboard({
+          level_percent: demoVal,
+          liters: demoVal * 10,
+          capacity_liters: 1000,
+          water_height_cm: demoVal,
+          distance_cm: 100 - demoVal,
+          status: 'OK'
+        });
+        return;
+      }
+
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(apiUrl, { signal: controller.signal, cache: 'no-store' });
+        clearTimeout(timeout);
+
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const json = await res.json();
+
+        liveDot.className = 'live-dot online';
+        connText.textContent = new URL(apiUrl).hostname;
+        updateDashboard(json);
+      } catch (err) {
+        liveDot.className = 'live-dot offline';
+        connText.textContent = 'Offline — Check Wi-Fi';
+        statusPill.textContent = 'DISCONNECTED';
+        statusPill.style.color = '#94a3b8';
+        statusPill.style.background = 'rgba(148, 163, 184, 0.12)';
+        statusPill.style.borderColor = 'rgba(148, 163, 184, 0.25)';
+      }
+    }
+
+    function startPolling() {
+      if (timerId) clearInterval(timerId);
+      pollTank();
+      timerId = setInterval(pollTank, pollInterval);
+    }
+
+    // Unlock audio & request notification permission on first tap anywhere
+    document.body.addEventListener('pointerdown', () => {
+      unlockAudio();
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    }, { once: true });
+
+    // Mute current active alarm button
+    ackBtn.addEventListener('click', () => {
+      alarmAcknowledged = true;
+      ackBtn.textContent = 'MUTED';
+    });
+
+    // Global Sound Toggle Button
+    const soundBtn = document.getElementById('soundBtn');
+    const soundIconOn = document.getElementById('soundIconOn');
+    const soundIconOff = document.getElementById('soundIconOff');
+
+    soundBtn.addEventListener('click', () => {
+      unlockAudio();
+      soundEnabled = !soundEnabled;
+      soundIconOn.style.display = soundEnabled ? 'block' : 'none';
+      soundIconOff.style.display = soundEnabled ? 'none' : 'block';
+      soundBtn.classList.toggle('active-state', soundEnabled);
+      soundBtn.classList.toggle('muted-state', !soundEnabled);
+    });
+
+    // Demo toggle
+    document.getElementById('demoBtn').addEventListener('click', () => {
+      unlockAudio();
+      demoMode = !demoMode;
+      pollTank();
+    });
+
+    // Settings Modal
+    const modal = document.getElementById('settingsModal');
+    const apiUrlInput = document.getElementById('apiUrlInput');
+    const pollInput = document.getElementById('pollInput');
+    const lowLimitInput = document.getElementById('lowLimitInput');
+    const highLimitInput = document.getElementById('highLimitInput');
+
+    document.getElementById('settingsBtn').addEventListener('click', () => {
+      apiUrlInput.value = apiUrl;
+      pollInput.value = pollInterval;
+      lowLimitInput.value = lowThreshold;
+      highLimitInput.value = highThreshold;
+      modal.classList.add('open');
+    });
+
+    document.getElementById('closeModalBtn').addEventListener('click', () => {
+      modal.classList.remove('open');
+    });
+
+    document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+      const nextUrl = apiUrlInput.value.trim();
+      const nextInterval = parseInt(pollInput.value, 10);
+      const nextLow = parseFloat(lowLimitInput.value);
+      const nextHigh = parseFloat(highLimitInput.value);
+
+      if (nextUrl) {
+        apiUrl = nextUrl;
+        localStorage.setItem('tank_api_url', apiUrl);
+      }
+      if (!isNaN(nextInterval) && nextInterval >= 500) {
+        pollInterval = nextInterval;
+        localStorage.setItem('tank_poll_ms', pollInterval);
+      }
+      if (!isNaN(nextLow) && nextLow >= 1 && nextLow < 95) {
+        lowThreshold = nextLow;
+        localStorage.setItem('tank_low_limit', lowThreshold);
+      }
+      if (!isNaN(nextHigh) && nextHigh > lowThreshold && nextHigh <= 100) {
+        highThreshold = nextHigh;
+        localStorage.setItem('tank_high_limit', highThreshold);
+      }
+
+      updateThresholdMarkers();
+      demoMode = false;
+      modal.classList.remove('open');
+      startPolling();
+    });
+
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+
+    updateThresholdMarkers();
+    startPolling();
+  </script>
+</body>
+</html>
