@@ -1,0 +1,55 @@
+name: Build AquaSense iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Setup Capacitor & iOS Project
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/ios
+          mkdir -p www
+          mv index.html manifest.json sw.js icon.svg www/
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Allow Local HTTP (App Transport Security)
+        run: |
+          PLIST="ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST" || \
+          /usr/libexec/PlistBuddy -c "Set :NSAppTransportSecurity:NSAllowsArbitraryLoads true" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 'AquaSense needs local network access to read water level data from your ESP8266 sensor.'" "$PLIST" || true
+
+      - name: Build Unsigned IPA
+        run: |
+          cd ios/App
+          xcodebuild -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CONFIGURATION_BUILD_DIR=build
+
+          mkdir -p Payload
+          cp -r build/App.app Payload/
+          zip -r AquaSense.ipa Payload
+
+      - name: Upload iOS IPA Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: AquaSense-iOS-IPA
+          path: ios/App/AquaSense.ipa
