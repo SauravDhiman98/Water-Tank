@@ -1,0 +1,285 @@
+name: Build AquaSense Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Capacitor & Android
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          mkdir -p www
+          mv index.html manifest.json sw.js icon.svg www/
+          npx cap add android
+          npx cap sync android
+
+      - name: Add Native Background Notification Service
+        run: |
+          PKG_DIR="android/app/src/main/java/com/aquasense/tankmonitor"
+          mkdir -p "$PKG_DIR"
+
+          # 1. Create Native Android Background Monitoring Service
+          cat << 'EOF' > "$PKG_DIR/TankMonitorService.java"
+          package com.aquasense.tankmonitor;
+
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.app.Service;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.media.AudioAttributes;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Handler;
+          import android.os.IBinder;
+          import android.os.Looper;
+          import androidx.core.app.NotificationCompat;
+          import org.json.JSONObject;
+          import java.io.BufferedReader;
+          import java.io.InputStreamReader;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.util.concurrent.ExecutorService;
+          import java.util.concurrent.Executors;
+
+          public class TankMonitorService extends Service {
+              private static final String CHANNEL_BG = "aquasense_bg_monitor";
+              private static final String CHANNEL_ALARM = "aquasense_level_alarm";
+              private static final int BG_NOTIF_ID = 1001;
+              private static final int ALARM_NOTIF_ID = 2002;
+
+              private final Handler handler = new Handler(Looper.getMainLooper());
+              private final ExecutorService executor = Executors.newSingleThreadExecutor();
+              private String lastAlertState = "NORMAL";
+
+              private final Runnable pollTask = new Runnable() {
+                  @Override
+                  public void run() {
+                      checkTankLevel();
+                      handler.postDelayed(this, 5000); // Poll every 5 seconds in background
+                  }
+              };
+
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  createNotificationChannels();
+                  startForeground(BG_NOTIF_ID, buildStatusNotification("Monitoring tank level in background..."));
+                  handler.post(pollTask);
+              }
+
+              private void checkTankLevel() {
+                  executor.execute(() -> {
+                      try {
+                          URL url = new URL("http://192.168.31.200/data");
+                          HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                          conn.setConnectTimeout(3000);
+                          conn.setReadTimeout(3000);
+                          conn.setRequestMethod("GET");
+
+                          if (conn.getResponseCode() == 200) {
+                              BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                              StringBuilder sb = new StringBuilder();
+                              String line;
+                              while ((line = reader.readLine()) != null) sb.append(line);
+                              reader.close();
+
+                              JSONObject json = new JSONObject(sb.toString());
+                              double pct = json.optDouble("level_percent", -1);
+                              int liters = json.optInt("liters", 0);
+
+                              if (pct >= 0) {
+                                  updateStatusNotification("Water Level: " + Math.round(pct) + "% (" + liters + " L)");
+
+                                  if (pct > 90.0) {
+                                      if (!"HIGH".equals(lastAlertState)) {
+                                          lastAlertState = "HIGH";
+                                          triggerAlarmNotification(
+                                              "🚨 High Water Alarm (" + Math.round(pct) + "%)",
+                                              "Tank exceeded 90% (" + liters + " L) — Turn off water pump!"
+                                          );
+                                      }
+                                  } else if (pct < 30.0) {
+                                      if (!"LOW".equals(lastAlertState)) {
+                                          lastAlertState = "LOW";
+                                          triggerAlarmNotification(
+                                              "⚠️ Low Water Alarm (" + Math.round(pct) + "%)",
+                                              "Tank dropped below 30% (" + liters + " L) — Refill needed!"
+                                          );
+                                      }
+                                  } else {
+                                      lastAlertState = "NORMAL";
+                                  }
+                              }
+                          }
+                          conn.disconnect();
+                      } catch (Exception ignored) {
+                      }
+                  });
+              }
+
+              private void createNotificationChannels() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationManager nm = getSystemService(NotificationManager.class);
+
+                      // Silent ongoing background service channel
+                      NotificationChannel bgChannel = new NotificationChannel(
+                          CHANNEL_BG, "Background Tank Monitor", NotificationManager.IMPORTANCE_LOW
+                      );
+                      nm.createNotificationChannel(bgChannel);
+
+                      // High-priority sound + vibration alarm channel
+                      Uri alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+                      if (alarmSound == null) {
+                          alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                      }
+                      AudioAttributes audioAttr = new AudioAttributes.Builder()
+                          .setUsage(AudioAttributes.USAGE_ALARM)
+                          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                          .build();
+
+                      NotificationChannel alarmChannel = new NotificationChannel(
+                          CHANNEL_ALARM, "Water Level Alarms", NotificationManager.IMPORTANCE_HIGH
+                      );
+                      alarmChannel.enableVibration(true);
+                      alarmChannel.setVibrationPattern(new long[]{0, 400, 200, 400, 200, 500});
+                      alarmChannel.setSound(alarmSound, audioAttr);
+                      nm.createNotificationChannel(alarmChannel);
+                  }
+              }
+
+              private Notification buildStatusNotification(String text) {
+                  Intent openIntent = new Intent(this, MainActivity.class);
+                  PendingIntent pi = PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE);
+
+                  return new NotificationCompat.Builder(this, CHANNEL_BG)
+                      .setContentTitle("AquaSense Active")
+                      .setContentText(text)
+                      .setSmallIcon(android.R.drawable.ic_dialog_info)
+                      .setContentIntent(pi)
+                      .setOngoing(true)
+                      .build();
+              }
+
+              private void updateStatusNotification(String text) {
+                  NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm != null) nm.notify(BG_NOTIF_ID, buildStatusNotification(text));
+              }
+
+              private void triggerAlarmNotification(String title, String message) {
+                  Intent openIntent = new Intent(this, MainActivity.class);
+                  PendingIntent pi = PendingIntent.getActivity(this, 1, openIntent, PendingIntent.FLAG_IMMUTABLE);
+
+                  Uri alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+                  if (alarmSound == null) {
+                      alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                  }
+
+                  Notification alarmNotif = new NotificationCompat.Builder(this, CHANNEL_ALARM)
+                      .setContentTitle(title)
+                      .setContentText(message)
+                      .setStyle(new NotificationCompat.BigTextStyle().bigText(message))
+                      .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                      .setPriority(NotificationCompat.PRIORITY_MAX)
+                      .setCategory(NotificationCompat.CATEGORY_ALARM)
+                      .setSound(alarmSound)
+                      .setVibrate(new long[]{0, 400, 200, 400, 200, 500})
+                      .setAutoCancel(true)
+                      .setContentIntent(pi)
+                      .build();
+
+                  NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm != null) nm.notify(ALARM_NOTIF_ID, alarmNotif);
+              }
+
+              @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  return START_STICKY; // Auto-restart if Android kills the service
+              }
+
+              @Override
+              public void onDestroy() {
+                  handler.removeCallbacks(pollTask);
+                  executor.shutdown();
+                  super.onDestroy();
+              }
+
+              @Override
+              public IBinder onBind(Intent intent) {
+                  return null;
+              }
+          }
+          EOF
+
+          # 2. Update MainActivity.java to request Notification Permission & start Background Service
+          cat << 'EOF' > "$PKG_DIR/MainActivity.java"
+          package com.aquasense.tankmonitor;
+
+          import android.Manifest;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.os.Build;
+          import android.os.Bundle;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                      if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                              != PackageManager.PERMISSION_GRANTED) {
+                          ActivityCompat.requestPermissions(this,
+                              new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+                      }
+                  }
+
+                  Intent serviceIntent = new Intent(this, TankMonitorService.class);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      startForegroundService(serviceIntent);
+                  } else {
+                      startService(serviceIntent);
+                  }
+              }
+          }
+          EOF
+
+          # 3. Register Permissions & Foreground Service in AndroidManifest.xml
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          sed -i 's/<uses-permission android:name="android.permission.INTERNET" \/>/<uses-permission android:name="android.permission.INTERNET" \/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" \/>\n    <uses-permission android:name="android.permission.VIBRATE" \/>/g' "$MANIFEST"
+          sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' "$MANIFEST"
+          sed -i 's/<\/application>/    <service android:name=".TankMonitorService" android:enabled="true" android:exported="false" android:foregroundServiceType="dataSync" \/>\n    <\/application>/g' "$MANIFEST"
+
+      - name: Build Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: AquaSense-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
