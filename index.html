@@ -58,7 +58,6 @@
       padding-top: 6px;
     }
 
-    /* Top Header */
     header {
       display: flex;
       align-items: center;
@@ -135,11 +134,11 @@
     }
 
     .icon-btn.muted-state {
-      border-color: rgba(248, 113, 113, 0.45);
+      border-color: rgba(248, 113, 113, 0.55);
+      background: rgba(248, 113, 113, 0.12);
       color: #f87171;
     }
 
-    /* Active Alarm Banner */
     .alarm-banner {
       display: none;
       align-items: center;
@@ -219,7 +218,6 @@
       white-space: nowrap;
     }
 
-    /* Main Tank Hero Card */
     .hero-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
@@ -247,7 +245,6 @@
       transition: all 0.4s ease;
     }
 
-    /* Realistic 3D-Styled Tank */
     .tank-assembly {
       display: flex;
       flex-direction: column;
@@ -292,7 +289,6 @@
       pointer-events: none;
     }
 
-    /* Threshold Marker Lines inside Tank */
     .threshold-line {
       position: absolute;
       left: 0;
@@ -326,7 +322,6 @@
     }
     .threshold-low span { color: #f87171; }
 
-    /* Liquid Fill */
     .water-fill {
       position: absolute;
       bottom: 0;
@@ -435,7 +430,6 @@
       backdrop-filter: blur(4px);
     }
 
-    /* Metrics Grid */
     .metrics-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -467,7 +461,6 @@
       color: var(--text-primary);
     }
 
-    /* Settings Modal */
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -572,7 +565,7 @@
         </div>
       </div>
       <div style="display:flex; gap:8px;">
-        <button class="icon-btn active-state" id="soundBtn" title="Toggle Alarm Sound" aria-label="Alarm Sound">
+        <button class="icon-btn active-state" id="soundBtn" title="Mute / Unmute All Alarms & Notifications" aria-label="Alarm Sound">
           <svg id="soundIconOn" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
@@ -617,7 +610,6 @@
       <div class="tank-assembly">
         <div class="tank-lid"></div>
         <div class="tank-body" id="tankBody">
-          <!-- High & Low Alarm Threshold Lines -->
           <div class="threshold-line threshold-high" id="highMarker"><span>MAX 90%</span></div>
           <div class="threshold-line threshold-low" id="lowMarker"><span>MIN 30%</span></div>
 
@@ -700,7 +692,8 @@
     let lowThreshold = parseFloat(localStorage.getItem('tank_low_limit')) || DEFAULT_LOW;
     let highThreshold = parseFloat(localStorage.getItem('tank_high_limit')) || DEFAULT_HIGH;
 
-    let soundEnabled = true;
+    // Persist global mute state across app restarts and sync with native Android Service
+    let soundEnabled = localStorage.getItem('tank_sound_enabled') !== 'false';
     let alarmAcknowledged = false;
     let lastAlarmType = null; // 'LOW' | 'HIGH' | null
     let audioCtx = null;
@@ -732,6 +725,32 @@
     const highMarker = document.getElementById('highMarker');
     const lowMarker = document.getElementById('lowMarker');
 
+    const soundBtn = document.getElementById('soundBtn');
+    const soundIconOn = document.getElementById('soundIconOn');
+    const soundIconOff = document.getElementById('soundIconOff');
+
+    // Sync settings & mute state directly to Native Android Foreground Service
+    function syncNativeSettings() {
+      localStorage.setItem('tank_sound_enabled', soundEnabled ? 'true' : 'false');
+      if (window.AquaSenseNative && typeof window.AquaSenseNative.updateConfig === 'function') {
+        try {
+          window.AquaSenseNative.updateConfig(
+            apiUrl,
+            lowThreshold,
+            highThreshold,
+            !soundEnabled // isMuted
+          );
+        } catch (e) {}
+      }
+    }
+
+    function applySoundButtonUI() {
+      soundIconOn.style.display = soundEnabled ? 'block' : 'none';
+      soundIconOff.style.display = soundEnabled ? 'none' : 'block';
+      soundBtn.classList.toggle('active-state', soundEnabled);
+      soundBtn.classList.toggle('muted-state', !soundEnabled);
+    }
+
     function updateThresholdMarkers() {
       highMarker.style.bottom = highThreshold + '%';
       highMarker.querySelector('span').textContent = `MAX ${highThreshold}%`;
@@ -740,7 +759,6 @@
       limitsMetric.textContent = `<${lowThreshold}% / >${highThreshold}%`;
     }
 
-    // Web Audio API Synthesizer for Alarm Beeps (works offline without MP3 files)
     function unlockAudio() {
       if (!audioCtx) {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -752,6 +770,7 @@
     }
 
     function playAlarmBeep(type) {
+      // Never play ringtone or vibrate if muted globally or acknowledged
       if (!soundEnabled || alarmAcknowledged) return;
       unlockAudio();
       if (!audioCtx) return;
@@ -764,7 +783,6 @@
       gain.connect(audioCtx.destination);
 
       if (type === 'HIGH') {
-        // Urgent double high-pitch chime for overflow warning (>90%)
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(880, now);
         osc.frequency.setValueAtTime(1174.66, now + 0.16);
@@ -773,7 +791,6 @@
         osc.start(now);
         osc.stop(now + 0.44);
       } else {
-        // Deep warning tone for low water (<30%)
         osc.type = 'sine';
         osc.frequency.setValueAtTime(523.25, now);
         osc.frequency.setValueAtTime(392.00, now + 0.22);
@@ -783,13 +800,14 @@
         osc.stop(now + 0.52);
       }
 
-      // Vibrate phone if supported
       if ('vibrate' in navigator) {
         navigator.vibrate(type === 'HIGH' ? [200, 100, 200] : [350]);
       }
     }
 
     function sendSystemNotification(title, body) {
+      // Do not send tray notification if muted
+      if (!soundEnabled || alarmAcknowledged) return;
       if ('Notification' in window && Notification.permission === 'granted') {
         try {
           new Notification(title, { body, icon: 'icon.svg', tag: 'tank-alarm' });
@@ -806,21 +824,22 @@
       }
 
       if (currentAlarm) {
-        // If alarm type changed (e.g., transitioned from normal to HIGH or LOW), reset mute and notify
         if (lastAlarmType !== currentAlarm) {
           alarmAcknowledged = false;
           lastAlarmType = currentAlarm;
-          const title = currentAlarm === 'HIGH'
-            ? `High Water Alarm (${Math.round(pct)}%)`
-            : `Low Water Alarm (${Math.round(pct)}%)`;
-          const desc = currentAlarm === 'HIGH'
-            ? `Tank exceeded ${highThreshold}% — turn off pump!`
-            : `Tank dropped below ${lowThreshold}% — refill needed!`;
-          sendSystemNotification(title, desc);
+          if (soundEnabled) {
+            const title = currentAlarm === 'HIGH'
+              ? `High Water Alarm (${Math.round(pct)}%)`
+              : `Low Water Alarm (${Math.round(pct)}%)`;
+            const desc = currentAlarm === 'HIGH'
+              ? `Tank exceeded ${highThreshold}% — turn off pump!`
+              : `Tank dropped below ${lowThreshold}% — refill needed!`;
+            sendSystemNotification(title, desc);
+          }
         }
 
         alarmBanner.classList.add('visible');
-        document.body.classList.add('alarm-flash');
+        document.body.classList.toggle('alarm-flash', soundEnabled && !alarmAcknowledged);
 
         if (currentAlarm === 'HIGH') {
           alarmBanner.classList.add('high-alarm');
@@ -832,10 +851,9 @@
           alarmDesc.textContent = `Tank is at ${Math.round(pct)}% — water running low`;
         }
 
-        ackBtn.textContent = alarmAcknowledged ? 'MUTED' : 'MUTE';
+        ackBtn.textContent = (!soundEnabled || alarmAcknowledged) ? 'MUTED' : 'MUTE';
         playAlarmBeep(currentAlarm);
       } else {
-        // Back in safe range (30% - 90%)
         lastAlarmType = null;
         alarmAcknowledged = false;
         alarmBanner.classList.remove('visible', 'high-alarm');
@@ -855,17 +873,16 @@
       const heightCm = parseFloat(data.water_height_cm ?? 0).toFixed(1);
       const distCm = parseFloat(data.distance_cm ?? 0).toFixed(1);
 
-      waterFill.style.height = pct + '%';
-      percentReadout.innerHTML = `${Math.round(pct)}<small>%</small>`;
-      litersReadout.textContent = `${liters} / ${capacity} L`;
-
-      depthMetric.textContent = `${heightCm} cm`;
-      gapMetric.textContent = distCm < 0 ? 'Error' : `${distCm} cm`;
       updatedMetric.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-      if (data.status === 'SENSOR_ERROR') {
-        waterFill.style.background = 'linear-gradient(180deg, #f59e0b 0%, #b45309 100%)';
-        setWaveColor('#f59e0b');
+      // RULE 1: If SENSOR_ERROR, suppress all alarms, clear alarm banner/flashing, and show clean error badge
+      if (data.status === 'SENSOR_ERROR' || parseFloat(data.distance_cm) < 0) {
+        lastAlarmType = null;
+        alarmAcknowledged = false;
+        alarmBanner.classList.remove('visible', 'high-alarm');
+        document.body.classList.remove('alarm-flash');
+
+        gapMetric.textContent = 'Sensor Error';
         statusPill.textContent = 'SENSOR ERROR';
         statusPill.style.color = '#fbbf24';
         statusPill.style.background = 'rgba(245, 158, 11, 0.15)';
@@ -873,6 +890,12 @@
         tankBody.style.boxShadow = 'inset 0 0 28px rgba(0,0,0,0.7), 0 14px 32px rgba(245, 158, 11, 0.25)';
         return;
       }
+
+      waterFill.style.height = pct + '%';
+      percentReadout.innerHTML = `${Math.round(pct)}<small>%</small>`;
+      litersReadout.textContent = `${liters} / ${capacity} L`;
+      depthMetric.textContent = `${heightCm} cm`;
+      gapMetric.textContent = `${distCm} cm`;
 
       handleAlarmState(pct);
 
@@ -916,7 +939,7 @@
           capacity_liters: 1000,
           water_height_cm: demoVal,
           distance_cm: 100 - demoVal,
-          status: 'OK'
+          status: 'NORMAL'
         });
         return;
       }
@@ -936,6 +959,8 @@
       } catch (err) {
         liveDot.className = 'live-dot offline';
         connText.textContent = 'Offline — Check Wi-Fi';
+        alarmBanner.classList.remove('visible', 'high-alarm');
+        document.body.classList.remove('alarm-flash');
         statusPill.textContent = 'DISCONNECTED';
         statusPill.style.color = '#94a3b8';
         statusPill.style.background = 'rgba(148, 163, 184, 0.12)';
@@ -949,7 +974,6 @@
       timerId = setInterval(pollTank, pollInterval);
     }
 
-    // Unlock audio & request notification permission on first tap anywhere
     document.body.addEventListener('pointerdown', () => {
       unlockAudio();
       if ('Notification' in window && Notification.permission === 'default') {
@@ -957,27 +981,30 @@
       }
     }, { once: true });
 
-    // Mute current active alarm button
+    // Banner MUTE button: mutes alarms & tray notifications globally so background service also stays silent
     ackBtn.addEventListener('click', () => {
       alarmAcknowledged = true;
+      soundEnabled = false;
       ackBtn.textContent = 'MUTED';
+      document.body.classList.remove('alarm-flash');
+      applySoundButtonUI();
+      syncNativeSettings();
     });
 
-    // Global Sound Toggle Button
-    const soundBtn = document.getElementById('soundBtn');
-    const soundIconOn = document.getElementById('soundIconOn');
-    const soundIconOff = document.getElementById('soundIconOff');
-
+    // Header Bell button: toggles global mute for both foreground ringtone AND background tray notifications
     soundBtn.addEventListener('click', () => {
       unlockAudio();
       soundEnabled = !soundEnabled;
-      soundIconOn.style.display = soundEnabled ? 'block' : 'none';
-      soundIconOff.style.display = soundEnabled ? 'none' : 'block';
-      soundBtn.classList.toggle('active-state', soundEnabled);
-      soundBtn.classList.toggle('muted-state', !soundEnabled);
+      if (!soundEnabled) {
+        alarmAcknowledged = true;
+        document.body.classList.remove('alarm-flash');
+      } else {
+        alarmAcknowledged = false;
+      }
+      applySoundButtonUI();
+      syncNativeSettings();
     });
 
-    // Demo toggle
     document.getElementById('demoBtn').addEventListener('click', () => {
       unlockAudio();
       demoMode = !demoMode;
@@ -1027,6 +1054,7 @@
       }
 
       updateThresholdMarkers();
+      syncNativeSettings();
       demoMode = false;
       modal.classList.remove('open');
       startPolling();
@@ -1036,7 +1064,9 @@
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
 
+    applySoundButtonUI();
     updateThresholdMarkers();
+    syncNativeSettings();
     startPolling();
   </script>
 </body>
